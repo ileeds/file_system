@@ -347,10 +347,13 @@ public class MyFileSystem implements FileSystem {
         // The blockNum is a logical block number referring to a
         // pointer in the inode.Z
         if(fresh)
+        	//if reading empty block, return hole
             if(mode == MODE.r)
                 return DirectBlock.hole;
+        	//if writing empty block but no free data block, return null
             else if((inode.ptr[blockNum] = freeMap.find()) == 0)
                 return null;
+        //if not fresh or writing to free data block, return direct block
         return new DirectBlock(disk, inode.ptr[blockNum], blockOff, fresh);
 	}
     
@@ -363,6 +366,7 @@ public class MyFileSystem implements FileSystem {
             else if((inode.ptr[10] = freeMap.find()) == 0)
                 return null;
             freeMap.save();
+        //if not fresh or writing to free data block, read from free data to indirect block
     	}else{
     		disk.read(inode.ptr[10], indirect);
     	}
@@ -379,6 +383,7 @@ public class MyFileSystem implements FileSystem {
             else if((inode.ptr[11] = freeMap.find()) == 0)
                 return null;
             freeMap.save();
+        //if not fresh or writing to free data block, read from free data to indirect block
     	}else{
     		disk.read(inode.ptr[11], indirect);
     	}
@@ -387,11 +392,24 @@ public class MyFileSystem implements FileSystem {
 	}
 
 	private DirectBlock tripleIndirect(Inode inode, MODE mode, int blockOff, int blockNum) {
-		// TODO Auto-generated method stub
-		return null;
+		IndirectBlock indirect=new IndirectBlock();
+    	boolean fresh = inode.ptr[12] == 0;
+    	if(fresh){
+            if(mode == MODE.r)
+                return DirectBlock.hole;
+            else if((inode.ptr[12] = freeMap.find()) == 0)
+                return null;
+            freeMap.save();
+        //if not fresh or writing to free data block, read from free data to indirect block
+    	}else{
+    		disk.read(inode.ptr[12], indirect);
+    	}
+    	int pointer = blockNum-12;
+        return getDirectTriple(inode, indirect, mode, blockOff, blockNum, pointer);
 	}
 
-    private DirectBlock getDirectSingle(Inode inode, IndirectBlock indirect, MODE mode, int blockOff, int blockNum, int pointer) {
+	private DirectBlock getDirectSingle(Inode inode, IndirectBlock indirect, MODE mode, int blockOff, int blockNum, int pointer) {
+    	//pointer is location in indirect block
 		boolean fresh = indirect.ptr[pointer] == 0;
     	if(fresh){
             if(mode == MODE.r)
@@ -400,15 +418,17 @@ public class MyFileSystem implements FileSystem {
                 return null;
             freeMap.save();
     	}
+    	//write indirect block to disk
     	disk.write(inode.ptr[10], indirect);
+    	//return directblock with free location
     	return new DirectBlock(disk, indirect.ptr[pointer], blockOff, fresh);
 	}
     
 	private DirectBlock getDirectDouble(Inode inode, IndirectBlock indirect, MODE mode, int blockOff, int blockNum,
 			int pointer) {
-    	//pointer to singly indirect block
+    	//location in double indirect block
     	int pointer1 = (blockNum-10-IndirectBlock.COUNT) / IndirectBlock.COUNT;
-    	//pointer direct block
+    	//location in single indirect block
     	int pointer2 = (blockNum-10-IndirectBlock.COUNT) % IndirectBlock.COUNT;
     	IndirectBlock indirect2 = new IndirectBlock();
     	boolean fresh = indirect.ptr[pointer1] == 0;
@@ -418,11 +438,12 @@ public class MyFileSystem implements FileSystem {
             else if((indirect.ptr[pointer1] = freeMap.find()) == 0)
                 return null;
             freeMap.save();
+            //add new indirect block
             disk.write(inode.ptr[11], indirect);
     	}else{
+    		//or read from indirect1 to indirect2
     		disk.read(indirect.ptr[pointer1], indirect2);
     	}
-    	
     	fresh = indirect2.ptr[pointer2] == 0;
     	if(fresh){
             if(mode == MODE.r)
@@ -431,7 +452,45 @@ public class MyFileSystem implements FileSystem {
                 return null;
             freeMap.save();
     	}
+    	//write indirect block to free location
     	disk.write(indirect.ptr[pointer1], indirect2);
+    	//return data block with free location
+    	return new DirectBlock(disk, indirect.ptr[pointer1], blockOff, fresh);
+	}
+	
+	private DirectBlock getDirectTriple(Inode inode, IndirectBlock indirect, MODE mode, int blockOff, int blockNum,
+			int pointer) {
+		//location in triple indirect block
+    	int pointer1 = (blockNum-10-IndirectBlock.COUNT) / IndirectBlock.COUNT;
+    	//location in double indirect block
+    	int pointer2 = (blockNum-10-IndirectBlock.COUNT) % IndirectBlock.COUNT;
+    	//location in single indirect block
+    	
+    	IndirectBlock indirect2 = new IndirectBlock();
+    	boolean fresh = indirect.ptr[pointer1] == 0;
+    	if(fresh){
+            if(mode == MODE.r)
+                return DirectBlock.hole;
+            else if((indirect.ptr[pointer1] = freeMap.find()) == 0)
+                return null;
+            freeMap.save();
+            //add new indirect block
+            disk.write(inode.ptr[11], indirect);
+    	}else{
+    		//or read from indirect1 to indirect2
+    		disk.read(indirect.ptr[pointer1], indirect2);
+    	}
+    	fresh = indirect2.ptr[pointer2] == 0;
+    	if(fresh){
+            if(mode == MODE.r)
+                return DirectBlock.hole;
+            else if((indirect2.ptr[pointer2] = freeMap.find()) == 0)
+                return null;
+            freeMap.save();
+    	}
+    	//write indirect block to free location
+    	disk.write(indirect.ptr[pointer1], indirect2);
+    	//return data block with free location
     	return new DirectBlock(disk, indirect.ptr[pointer1], blockOff, fresh);
 	}
 
